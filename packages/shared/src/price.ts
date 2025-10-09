@@ -3,7 +3,11 @@ import Decimal from 'decimal.js'
 export function parsePrice(text: string): { price: Decimal; currency: string } | null {
   const t = text.replace(/\s+/g, ' ').trim()
   const currencyMatch = t.match(/[€£$]|NZ\$|US\$|AU\$/)
-  const numMatch = t.replace(/[^0-9.,]/g, '')
+  const spacedDecimalMatch = t.match(/(\d+)\s+(\d{2})(?!\d)/)
+  let numMatch = t.replace(/[^0-9.,]/g, '')
+  if (spacedDecimalMatch && !t.includes('.')) {
+    numMatch = `${spacedDecimalMatch[1]}.${spacedDecimalMatch[2]}`
+  }
   if (!numMatch) return null
   let normalized = numMatch
   if (normalized.indexOf(',') > -1 && normalized.indexOf('.') > -1) {
