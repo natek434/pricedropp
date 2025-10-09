@@ -39,14 +39,17 @@ export function WatchList() {
           maximumFractionDigits: 3,
         })
         const displayTitle = watch.product.title || watch.product.url
+        const imageSrc = watch.product.imageCacheId
+          ? `/api/images/${watch.product.imageCacheId}`
+          : watch.product.image || undefined
         return (
           <Card key={watch.id}>
             <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start">
-              {watch.product.image ? (
+              {imageSrc ? (
                 <div className="shrink-0 overflow-hidden rounded-md border border-gray-200 bg-white">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={watch.product.image}
+                    src={imageSrc}
                     alt={displayTitle}
                     className="h-24 w-24 object-cover"
                     loading="lazy"

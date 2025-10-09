@@ -1,20 +1,58 @@
 "use client"
-import { useEffect, useState } from 'react'
+
+import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { trpc } from '@/lib/trpc/client'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
+function isValidUrl(value: string) {
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 export default function AddWatch() {
   const router = useRouter()
   const [url, setUrl] = useState('')
   const [price, setPrice] = useState('')
   const [name, setName] = useState('')
-  const [imageUrl, setImageUrl] = useState('')
   const [category, setCategory] = useState('')
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [searchInput, setSearchInput] = useState<{ name: string; price: number }>({ name: '', price: 0 })
+  const [searchQuery, setSearchQuery] = useState('')
+  const [nameTouched, setNameTouched] = useState(false)
+  const [imageTouched, setImageTouched] = useState(false)
+  const [manualImageMode, setManualImageMode] = useState(false)
+  const [imageUrl, setImageUrl] = useState('')
+  const [imageCacheId, setImageCacheId] = useState<string | null>(null)
+
+  const parsedPrice = useMemo(() => {
+    const value = Number.parseFloat(price)
+    return Number.isFinite(value) ? value : NaN
+  }, [price])
+
+  const previewQuery = trpc.product.preview.useQuery(
+    { url },
+    {
+      enabled: isValidUrl(url),
+      staleTime: 1000 * 60,
+      retry: false,
+    }
+  )
+  const googleQuery = trpc.product.googleShopping.useQuery(
+    { query: searchQuery },
+    {
+      enabled: Boolean(searchQuery),
+      staleTime: 1000 * 60 * 5,
+      retry: false,
+    }
+  )
+  const categoriesQuery = trpc.meta.categories.useQuery(undefined, { staleTime: 1000 * 60 * 10 })
 
   const mutation = trpc.watch.create.useMutation({
     onSuccess: () => {
@@ -22,8 +60,12 @@ export default function AddWatch() {
       setUrl('')
       setPrice('')
       setName('')
-      setImageUrl('')
       setCategory('')
+      setNameTouched(false)
+      setImageTouched(false)
+      setManualImageMode(false)
+      setImageUrl('')
+      setImageCacheId(null)
       router.refresh()
     },
     onError: (error) => {
@@ -31,31 +73,44 @@ export default function AddWatch() {
     },
   })
 
-  const categoriesQuery = trpc.meta.categories.useQuery(undefined, { staleTime: 1000 * 60 * 10 })
-  const similarQuery = trpc.product.searchSimilar.useQuery(
-    {
-      name: searchInput.name,
-      targetPrice: searchInput.price,
-      rangePercent: 15,
-    },
-    {
-      enabled: Boolean(searchInput.name),
-      staleTime: 1000 * 30,
-    }
-  )
-
-  const parsedPrice = Number(price)
-
   useEffect(() => {
     if (!Number.isFinite(parsedPrice) || parsedPrice <= 0 || name.trim().length < 2) {
-      setSearchInput((prev) => (prev.name ? { name: '', price: 0 } : prev))
+      setSearchQuery('')
       return
     }
     const handle = setTimeout(() => {
-      setSearchInput({ name: name.trim(), price: parsedPrice })
+      const query = `${name.trim()} ${parsedPrice.toFixed(2)}`.trim()
+      setSearchQuery((prev) => (prev === query ? prev : query))
     }, 400)
     return () => clearTimeout(handle)
   }, [name, parsedPrice])
+
+  useEffect(() => {
+    if (!previewQuery.data) return
+    if (!nameTouched && previewQuery.data.title) {
+      setName(previewQuery.data.title)
+    }
+    if (!imageTouched && !manualImageMode && previewQuery.data.image) {
+      setImageCacheId(previewQuery.data.image.id)
+      setImageUrl(previewQuery.data.image.sourceUrl)
+    }
+  }, [previewQuery.data, nameTouched, imageTouched, manualImageMode])
+
+  const previewImageSrc = useMemo(() => {
+    if (imageCacheId) return `/api/images/${imageCacheId}`
+    return imageUrl || undefined
+  }, [imageCacheId, imageUrl])
+
+  function resetForNewUrl(newUrl: string) {
+    setUrl(newUrl)
+    setMessage(null)
+    setName('')
+    setNameTouched(false)
+    setImageTouched(false)
+    setManualImageMode(false)
+    setImageUrl('')
+    setImageCacheId(null)
+  }
 
   function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -64,22 +119,24 @@ export default function AddWatch() {
       setMessage({ type: 'error', text: 'Enter a valid target price.' })
       return
     }
-    mutation.mutate({
+    const payload = {
       url,
       targetPrice: parsedPrice,
       title: name.trim() || undefined,
-      imageUrl: imageUrl.trim() || undefined,
       categorySlug: category || undefined,
-    })
+      imageUrl: imageUrl.trim() || undefined,
+      imageCacheId: manualImageMode ? undefined : imageCacheId || undefined,
+    }
+    mutation.mutate(payload)
   }
 
   return (
     <div className="flex min-h-[60vh] items-start justify-center">
-      <Card className="w-full max-w-4xl">
+      <Card className="w-full max-w-5xl">
         <CardHeader>
           <CardTitle>Add a product to watch</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-6 md:grid-cols-[1.4fr_1fr]">
+        <CardContent className="grid gap-6 md:grid-cols-[1.3fr_1fr]">
           <form onSubmit={submit} className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700" htmlFor="url">
@@ -88,9 +145,30 @@ export default function AddWatch() {
               <Input
                 id="url"
                 value={url}
-                onChange={(e) => setUrl(e.target.value)}
+                onChange={(e) => resetForNewUrl(e.target.value)}
                 placeholder="https://www.example.com/product"
                 required
+                inputMode="url"
+              />
+              {previewQuery.isFetching && url && (
+                <p className="text-xs text-gray-500">Fetching details…</p>
+              )}
+              {previewQuery.error && (
+                <p className="text-xs text-red-600">Unable to fetch product details automatically.</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700" htmlFor="name">
+                Name
+              </label>
+              <Input
+                id="name"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value)
+                  setNameTouched(true)
+                }}
+                placeholder="Mainland Butter Salted"
               />
             </div>
             <div className="space-y-2">
@@ -116,19 +194,8 @@ export default function AddWatch() {
                 type="number"
                 min="0"
                 step="0.001"
+                inputMode="decimal"
                 required
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700" htmlFor="image">
-                Image URL (optional)
-              </label>
-              <Input
-                id="image"
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-                placeholder="https://cdn.example.com/product.jpg"
-                type="url"
               />
             </div>
             <div className="space-y-2">
@@ -148,11 +215,9 @@ export default function AddWatch() {
                   </option>
                 ))}
               </select>
-              {categoriesQuery.isLoading && (
-                <p className="text-xs text-gray-500">Loading categories…</p>
-              )}
+              {categoriesQuery.isLoading && <p className="text-xs text-gray-500">Loading categories…</p>}
             </div>
-            <Button type="submit" disabled={mutation.isPending} className="w-full">
+            <Button type="submit" disabled={mutation.isPending || !isValidUrl(url)} className="w-full">
               {mutation.isPending ? 'Adding…' : 'Add watch'}
             </Button>
             {message && (
@@ -161,35 +226,136 @@ export default function AddWatch() {
               </p>
             )}
           </form>
-          <div className="space-y-4">
-            <div>
-              <h3 className="text-sm font-semibold text-gray-900">Suggested similar items</h3>
-              <p className="text-xs text-gray-500">
-                Enter a name and target price to explore related products in PriceDropp.
-              </p>
-            </div>
+
+          <div className="space-y-6">
             <div className="space-y-2">
-              {similarQuery.isFetching && <p className="text-sm text-gray-500">Searching…</p>}
-              {!similarQuery.isFetching && similarQuery.data?.length ? (
-                <ul className="space-y-2 text-sm text-gray-700">
-                  {similarQuery.data.map((item) => (
-                    <li key={item.id} className="rounded-md border border-gray-200 p-2">
-                      <div className="font-medium text-gray-900">{item.title}</div>
-                      <div className="text-xs text-gray-500">{item.host}</div>
-                      <div className="text-sm text-gray-700">
-                        {item.currency}{' '}
-                        {item.lastPrice.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 3,
-                        })}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              {!similarQuery.isFetching && searchInput.name && !similarQuery.data?.length && (
-                <p className="text-sm text-gray-500">No similar items found yet.</p>
-              )}
+              <h3 className="text-sm font-semibold text-gray-900">Product preview</h3>
+              <p className="text-xs text-gray-500">
+                We try to capture the product title and image automatically from the page. You can override the image if needed.
+              </p>
+              <div className="space-y-3 rounded-md border border-gray-200 p-3">
+                <div className="flex items-center gap-3">
+                  <div className="h-20 w-20 overflow-hidden rounded-md border border-gray-100 bg-white">
+                    {previewImageSrc ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={previewImageSrc} alt={name || url || 'Product image'} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-xs text-gray-400">No image yet</div>
+                    )}
+                  </div>
+                  <div className="space-y-1 text-sm">
+                    <div className="font-medium text-gray-900">{name || 'Name will appear here'}</div>
+                    <div className="text-xs text-gray-500 break-all">{url || 'Enter a URL to preview'}</div>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {manualImageMode ? (
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium text-gray-600" htmlFor="image-url">
+                        Image URL override
+                      </label>
+                      <Input
+                        id="image-url"
+                        value={imageUrl}
+                        onChange={(e) => {
+                          setImageUrl(e.target.value)
+                          setImageTouched(true)
+                          setImageCacheId(null)
+                        }}
+                        placeholder="https://cdn.example.com/product.jpg"
+                        type="url"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="px-2 text-xs"
+                        onClick={() => {
+                          setManualImageMode(false)
+                          setImageTouched(false)
+                          if (previewQuery.data?.image) {
+                            setImageCacheId(previewQuery.data.image.id)
+                            setImageUrl(previewQuery.data.image.sourceUrl)
+                          }
+                        }}
+                      >
+                        Use detected image instead
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="px-2 text-xs"
+                      onClick={() => {
+                        setManualImageMode(true)
+                        setImageTouched(true)
+                        setImageCacheId(null)
+                      }}
+                    >
+                      Override image URL
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-sm font-semibold text-gray-900">Similar items on Google Shopping</h3>
+              <p className="text-xs text-gray-500">
+                We search Google Shopping using your product name and price so you can compare offers quickly.
+              </p>
+              <div className="space-y-2">
+                {googleQuery.isFetching && <p className="text-sm text-gray-500">Searching Google…</p>}
+                {!googleQuery.isFetching && googleQuery.data?.length ? (
+                  <div className="overflow-x-auto">
+                    <div className="flex gap-3 pb-2">
+                      {googleQuery.data.map((item) => (
+                        <a
+                          key={item.id}
+                          href={item.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex w-48 shrink-0 flex-col gap-2 rounded-md border border-gray-200 p-3 hover:border-gray-300"
+                        >
+                          <div className="h-32 w-full overflow-hidden rounded bg-white">
+                            {item.imageUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover" loading="lazy" />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center text-xs text-gray-400">No image</div>
+                            )}
+                          </div>
+                          <div className="space-y-1">
+                            <div className="line-clamp-3 text-xs font-medium text-gray-900">{item.title}</div>
+                            {item.priceText ? (
+                              <div className="text-sm font-semibold text-gray-800">{item.priceText}</div>
+                            ) : null}
+                            {item.merchant ? (
+                              <div className="text-xs text-gray-500">{item.merchant}</div>
+                            ) : null}
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {!googleQuery.isFetching && searchQuery && !googleQuery.data?.length && (
+                  <p className="text-sm text-gray-500">No Google Shopping results yet.</p>
+                )}
+                {!searchQuery && (
+                  <p className="text-xs text-gray-500">Enter a product name and target price to search Google.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2 text-xs text-gray-500">
+              <p>
+                Need to grab a product URL? Browse your favourite store, copy the address, and we will handle the rest—including image
+                caching so reloads stay fast.
+              </p>
+              <Link href="/dashboard" className="font-medium text-gray-700 underline">
+                View your existing watches
+              </Link>
             </div>
           </div>
         </CardContent>

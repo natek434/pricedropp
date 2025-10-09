@@ -44,6 +44,7 @@ model Product {
   host         String
   title        String
   image        String?
+  imageCacheId String?
   currency     String
   lastPrice    Decimal        @db.Decimal(18, 4)
   createdAt    DateTime       @default(now())
@@ -53,6 +54,7 @@ model Product {
   watches      Watch[]
   categories   ProductCategory[]
   tags         ProductTag[]
+  imageCache   CachedAsset?   @relation(fields: [imageCacheId], references: [id])
 }
 
 model PriceHistory {
@@ -129,6 +131,16 @@ model SiteRule {
   selectors String[]
   waitMs    Int      @default(1500)
   updatedAt DateTime @updatedAt
+}
+
+model CachedAsset {
+  id          String    @id @default(cuid())
+  sourceUrl   String    @unique
+  contentType String
+  data        Bytes
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  products    Product[]
 }
 
 model AuditLog {

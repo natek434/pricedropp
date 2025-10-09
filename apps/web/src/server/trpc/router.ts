@@ -1,9 +1,18 @@
 import { initTRPC, TRPCError } from '@trpc/server'
 import superjson from 'superjson'
 import { z } from 'zod'
-import { WatchCreateSchema, UserSettingsSchema, rateLimitKey, decimalToNumber, SimilarProductSearchSchema } from '@pricedropp/shared'
+import {
+  WatchCreateSchema,
+  UserSettingsSchema,
+  rateLimitKey,
+  decimalToNumber,
+  ProductPreviewSchema,
+  GoogleShoppingSearchSchema,
+} from '@pricedropp/shared'
 import { Prisma } from '@pricedropp/db'
 import { Context } from './context'
+import { fetchProductPreview, ensureCachedAsset } from '../lib/product-metadata'
+import { searchGoogleShopping } from '../lib/google-shopping'
 
 const t = initTRPC.context<Context>().create({ transformer: superjson })
 
@@ -28,20 +37,53 @@ export const appRouter = t.router({
     create: t.procedure.use(authed).input(WatchCreateSchema).mutation(async ({ ctx, input }) => {
       const rl = await rateLimitKey(`watch:create:${(ctx as any).userId}`, 30, 24 * 3600)
       if (!rl.allowed) throw new TRPCError({ code: 'TOO_MANY_REQUESTS' })
-      const { url, targetPrice, categorySlug, title, imageUrl } = input
+      const { url, targetPrice, categorySlug, title, imageUrl, imageCacheId } = input
       const u = new URL(url)
       const currency = 'NZD'
+      let resolvedTitle = title?.trim()
+      let resolvedImageUrl = imageUrl?.trim() || undefined
+      let resolvedImageCacheId = imageCacheId
+
+      if (!resolvedTitle || !resolvedImageUrl || !resolvedImageCacheId) {
+        try {
+          const preview = await fetchProductPreview(url)
+          if (!resolvedTitle && preview.title) resolvedTitle = preview.title
+          if (preview.image) {
+            resolvedImageUrl = preview.image.sourceUrl
+            resolvedImageCacheId = preview.image.id
+          }
+        } catch (error) {
+          console.error('Failed to fetch product preview for watch.create', error)
+        }
+      }
+
+      if (!resolvedImageCacheId && resolvedImageUrl) {
+        try {
+          const asset = await ensureCachedAsset(resolvedImageUrl)
+          resolvedImageCacheId = asset?.id
+        } catch (error) {
+          console.error('Failed to cache product image', error)
+        }
+      }
+
+      const titleForCreate = resolvedTitle || url
       const createProductData: Prisma.ProductCreateInput = {
         url,
         host: u.host,
-        title: title ?? url,
-        image: imageUrl ?? null,
+        title: titleForCreate,
+        image: resolvedImageUrl ?? null,
         currency,
         lastPrice: new Prisma.Decimal(targetPrice),
+        imageCache: resolvedImageCacheId ? { connect: { id: resolvedImageCacheId } } : undefined,
       }
       const updateProductData: Prisma.ProductUpdateInput = {}
-      if (title) updateProductData.title = title
-      if (imageUrl) updateProductData.image = imageUrl
+      if (resolvedTitle) updateProductData.title = resolvedTitle
+      if (resolvedImageUrl) updateProductData.image = resolvedImageUrl
+      if (resolvedImageCacheId) {
+        updateProductData.imageCache = { connect: { id: resolvedImageCacheId } }
+      } else if (resolvedImageUrl) {
+        updateProductData.imageCache = { disconnect: true }
+      }
       const product = await ctx.prisma.product.upsert({
         where: { url },
         create: createProductData,
@@ -67,30 +109,13 @@ export const appRouter = t.router({
     }),
   }),
   product: t.router({
-    searchSimilar: t.procedure.input(SimilarProductSearchSchema).query(async ({ ctx, input }) => {
-      const { name, targetPrice, rangePercent } = input
-      const span = (targetPrice * rangePercent) / 100
-      const min = new Prisma.Decimal(targetPrice - span)
-      const max = new Prisma.Decimal(targetPrice + span)
-      const matches = await ctx.prisma.product.findMany({
-        where: {
-          title: { contains: name, mode: 'insensitive' },
-          lastPrice: { gte: min, lte: max },
-        },
-        select: {
-          id: true,
-          title: true,
-          host: true,
-          currency: true,
-          lastPrice: true,
-        },
-        orderBy: { updatedAt: 'desc' },
-        take: 10,
-      })
-      return matches.map((product) => ({
-        ...product,
-        lastPrice: decimalToNumber(product.lastPrice),
-      }))
+    preview: t.procedure.input(ProductPreviewSchema).query(async ({ input }) => {
+      const preview = await fetchProductPreview(input.url)
+      return preview
+    }),
+    googleShopping: t.procedure.input(GoogleShoppingSearchSchema).query(async ({ input }) => {
+      const results = await searchGoogleShopping(input.query)
+      return results
     }),
   }),
   meta: t.router({
