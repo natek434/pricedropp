@@ -20,6 +20,10 @@ Monorepo for a production-oriented price watch and alerting app.
 
 See [docs/manual-preview.md](./docs/manual-preview.md) if you need to manually trigger the product preview scraper (includes both Unix shell and Windows PowerShell examples).
 
+## Google Shopping integration
+
+Google does not expose a public Shopping Search API that returns the same consumer-facing results page we surface inside PriceDropp. The official "Content API for Shopping" only works for merchants who list their own products and cannot be used to query arbitrary listings. For details on why and the alternatives we support, see [the Google Shopping integration notes](docs/google-shopping-integration.md).
+
 ## Structure
 
 - `apps/web` — Next.js app with auth, tRPC, REST feeds
