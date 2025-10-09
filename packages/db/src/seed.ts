@@ -23,6 +23,7 @@ async function main() {
   const rules = [
     { host: 'www.amazon.com', selectors: ['#corePriceDisplay_desktop_feature_div .a-offscreen'], waitMs: 2500 },
     { host: 'www.newegg.com', selectors: ['.price-current strong', '.price-current sup'], waitMs: 2000 },
+    { host: 'www.woolworths.co.nz', selectors: ['.priceCupAdjustmentDev .presentPrice'], waitMs: 2500 },
   ]
   for (const r of rules) {
     await prisma.siteRule.upsert({ where: { host: r.host }, update: { selectors: r.selectors, waitMs: r.waitMs }, create: r })
