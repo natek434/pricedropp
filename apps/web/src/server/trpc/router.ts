@@ -1,7 +1,7 @@
 import { initTRPC, TRPCError } from '@trpc/server'
 import superjson from 'superjson'
 import { z } from 'zod'
-import { WatchCreateSchema, UserSettingsSchema, rateLimitKey } from '@pricedropp/shared'
+import { WatchCreateSchema, UserSettingsSchema, rateLimitKey, decimalToNumber } from '@pricedropp/shared'
 import type { Prisma } from '@pricedropp/db'
 import { Context } from './context'
 
@@ -68,10 +68,10 @@ function serializeWatch(
 ) {
   return {
     ...watch,
-    targetPrice: Number(watch.targetPrice),
+    targetPrice: decimalToNumber(watch.targetPrice),
     product: {
       ...watch.product,
-      lastPrice: Number(watch.product.lastPrice),
+      lastPrice: decimalToNumber(watch.product.lastPrice),
     },
   }
 }
