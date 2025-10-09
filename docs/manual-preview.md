@@ -32,11 +32,13 @@ PowerShell aliases `curl` to `Invoke-WebRequest`, which does not understand the 
 
 ```powershell
 curl.exe -G "http://localhost:3000/api/trpc/product.preview" `
-  --data-urlencode "batch=1" `
-  --data-urlencode "input={\"0\":{\"json\":{\"url\":\"https://www.woolworths.co.nz/shop/productdetails?stockcode=281691&name=mainland-butter-salted\"}}}}"
+  --data-urlencode 'batch=1' `
+  --data-urlencode 'input={"0":{"json":{"url":"https://www.woolworths.co.nz/shop/productdetails?stockcode=281691`&name=mainland-butter-salted"}}}}'
 ```
 
 > **Tip:** PowerShell uses the backtick (\`) for line continuations. You can also write the command on a single line if you prefer.
+
+The backtick before `&` inside the URL is required—without it, PowerShell interprets `&` as the background-job operator and launches `curl.exe` without the remaining arguments.
 
 #### Or call Invoke-WebRequest directly
 
