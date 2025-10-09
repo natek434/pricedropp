@@ -4,6 +4,8 @@ const HEADERS = {
   'accept-language': 'en-US,en;q=0.9',
 }
 
+const SERPAPI_KEY = process.env.SERPAPI_KEY
+
 const CARD_CLASS_MARKERS = [
   'sh-dgr__content',
   'i0X6df',
@@ -25,6 +27,17 @@ export type GoogleShoppingResult = {
 }
 
 export async function searchGoogleShopping(query: string): Promise<GoogleShoppingResult[]> {
+  if (SERPAPI_KEY) {
+    try {
+      const serpResults = await searchViaSerpApi(query, SERPAPI_KEY)
+      if (serpResults.length) {
+        return serpResults.slice(0, 12)
+      }
+    } catch (error) {
+      console.warn('SerpApi request failed, falling back to direct scraping:', error)
+    }
+  }
+
   const url = `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(query)}`
   const response = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(12_000) })
   if (!response.ok) {
@@ -82,6 +95,55 @@ export async function searchGoogleShopping(query: string): Promise<GoogleShoppin
     })
   }
 
+  return results
+}
+
+async function searchViaSerpApi(query: string, apiKey: string): Promise<GoogleShoppingResult[]> {
+  const params = new URLSearchParams({
+    engine: 'google_shopping',
+    api_key: apiKey,
+    q: query,
+    gl: 'us',
+    hl: 'en',
+    num: '12',
+  })
+  const response = await fetch(`https://serpapi.com/search.json?${params.toString()}`, {
+    signal: AbortSignal.timeout(12_000),
+  })
+  if (!response.ok) {
+    throw new Error(`SerpApi request failed: ${response.status}`)
+  }
+  const payload = (await response.json()) as {
+    shopping_results?: Array<{
+      title?: string
+      link?: string
+      source?: string
+      price?: string
+      extracted_price?: number
+      product_id?: string
+      product_link?: string
+      thumbnail?: string
+    }>
+  }
+  const items = payload.shopping_results || []
+  const results: GoogleShoppingResult[] = []
+  const seen = new Set<string>()
+  for (const item of items) {
+    const title = cleanText(item.title)
+    const link = normalizeGoogleLink(item.product_link || item.link)
+    if (!title || !link) continue
+    const id = item.product_id ? Buffer.from(item.product_id).toString('base64url') : createResultId(link, title)
+    if (seen.has(id)) continue
+    seen.add(id)
+    results.push({
+      id,
+      title,
+      link,
+      merchant: cleanText(item.source),
+      priceText: item.price || (typeof item.extracted_price === 'number' ? `$${item.extracted_price}` : undefined),
+      imageUrl: normalizeGoogleLink(item.thumbnail),
+    })
+  }
   return results
 }
 
