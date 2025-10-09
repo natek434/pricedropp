@@ -142,7 +142,8 @@ function collectImageCandidates(html: string, baseUrl: string) {
     if (!value) return
     const trimmed = value.trim()
     if (!trimmed) return
-    const absolute = toAbsoluteUrl(trimmed, base)
+    const decoded = decodeHtmlEntities(trimmed)
+    const absolute = toAbsoluteUrl(decoded, base)
     if (absolute) urls.add(absolute)
   }
   const prioritizedImageSrcs: string[] = []
@@ -232,4 +233,24 @@ function guessContentTypeFromUrl(url: string) {
   if (lower.endsWith('.gif')) return 'image/gif'
   if (lower.endsWith('.svg')) return 'image/svg+xml'
   return lower.endsWith('.jpg') || lower.endsWith('.jpeg') ? 'image/jpeg' : null
+}
+
+function decodeHtmlEntities(value: string) {
+  return value.replace(/&(#\d+|#x[0-9a-f]+|[a-z]+);/gi, (match, entity) => {
+    const lower = entity.toLowerCase()
+    if (lower === 'amp') return '&'
+    if (lower === 'lt') return '<'
+    if (lower === 'gt') return '>'
+    if (lower === 'quot') return '"'
+    if (lower === 'apos') return "'"
+    if (lower.startsWith('#x')) {
+      const codePoint = Number.parseInt(lower.slice(2), 16)
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match
+    }
+    if (lower.startsWith('#')) {
+      const codePoint = Number.parseInt(lower.slice(1), 10)
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match
+    }
+    return match
+  })
 }
