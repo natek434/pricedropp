@@ -6,6 +6,7 @@ async function main() {
     { name: 'Electronics', slug: 'electronics' },
     { name: 'Home', slug: 'home' },
     { name: 'Gaming', slug: 'gaming' },
+    { name: 'Fuel', slug: 'fuel' },
   ]
   for (const c of categories) {
     await prisma.category.upsert({ where: { slug: c.slug }, update: {}, create: c })
