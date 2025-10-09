@@ -29,27 +29,59 @@ export function WatchList() {
 
   return (
     <div className="grid gap-3">
-      {data.map((watch) => (
-        <Card key={watch.id}>
-          <CardContent className="flex flex-col gap-2 py-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-medium text-gray-900">{watch.product.title}</div>
-                <div className="text-xs text-gray-500">{watch.product.host}</div>
+      {data.map((watch) => {
+        const formattedTarget = watch.targetPrice.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 3,
+        })
+        const formattedLast = watch.product.lastPrice.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 3,
+        })
+        const displayTitle = watch.product.title || watch.product.url
+        const imageSrc = watch.product.imageCacheId
+          ? `/api/images/${watch.product.imageCacheId}`
+          : watch.product.image || undefined
+        return (
+          <Card key={watch.id}>
+            <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start">
+              {imageSrc ? (
+                <div className="shrink-0 overflow-hidden rounded-md border border-gray-200 bg-white">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={imageSrc}
+                    alt={displayTitle}
+                    className="h-24 w-24 object-cover"
+                    loading="lazy"
+                  />
+                </div>
+              ) : null}
+              <div className="flex-1 space-y-2">
+                <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
+                  <div>
+                    <div className="font-medium text-gray-900">{displayTitle}</div>
+                    <div className="text-xs text-gray-500">{watch.product.host}</div>
+                  </div>
+                  <div className="text-right text-sm text-gray-600 sm:text-base">
+                    Target{' '}
+                    <span className="font-medium">
+                      {watch.product.currency} {formattedTarget}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex flex-col justify-between gap-2 text-xs text-gray-500 sm:flex-row sm:items-center">
+                  <div>
+                    Last price: {watch.product.currency} {formattedLast}
+                  </div>
+                  <Link href={`/product/${watch.productId}`} className="underline">
+                    View history
+                  </Link>
+                </div>
               </div>
-              <div className="text-right text-sm text-gray-600">
-                Target <span className="font-medium">{watch.product.currency} {watch.targetPrice.toString()}</span>
-              </div>
-            </div>
-            <div className="flex items-center justify-between text-xs text-gray-500">
-              <div>Last price: {watch.product.currency} {watch.product.lastPrice.toString()}</div>
-              <Link href={`/product/${watch.productId}`} className="underline">
-                View history
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+            </CardContent>
+          </Card>
+        )
+      })}
     </div>
   )
 }
