@@ -3,9 +3,9 @@ import { prisma, Prisma } from '@pricedropp/db'
 type PreviewResult = {
   title?: string
   image?: {
-    id: string
+    id?: string
     sourceUrl: string
-    contentType: string
+    contentType?: string
   }
 }
 
@@ -45,18 +45,31 @@ export async function fetchProductPreview(url: string): Promise<PreviewResult> {
         },
       }
     }
+    if (asset === undefined) {
+      return {
+        title,
+        image: {
+          sourceUrl: candidate,
+        },
+      }
+    }
   }
 
   return { title }
 }
 
 export async function ensureCachedAsset(sourceUrl: string) {
-  return getOrCreateCachedAsset(sourceUrl)
+  const asset = await getOrCreateCachedAsset(sourceUrl)
+  return asset ?? null
 }
 
 async function getOrCreateCachedAsset(sourceUrl: string) {
+  const cachedAsset = getCachedAssetDelegate()
+  if (!cachedAsset) {
+    return undefined
+  }
   try {
-    const existing = await prisma.cachedAsset.findUnique({ where: { sourceUrl } })
+    const existing = await cachedAsset.findUnique({ where: { sourceUrl } })
     if (existing) return existing
   } catch (error) {
     if (isCachedAssetUnavailable(error)) {
@@ -79,7 +92,7 @@ async function getOrCreateCachedAsset(sourceUrl: string) {
   const contentType = res.headers.get('content-type') || guessContentTypeFromUrl(sourceUrl) || 'application/octet-stream'
   const data = Buffer.from(arrayBuffer)
   try {
-    return await prisma.cachedAsset.create({
+    return await cachedAsset.create({
       data: {
         sourceUrl,
         contentType,
@@ -102,6 +115,24 @@ function isCachedAssetUnavailable(error: unknown) {
   if (error instanceof Prisma.PrismaClientInitializationError) return true
   if (error instanceof Error && /cachedasset/i.test(error.message)) return true
   return false
+}
+
+type CachedAssetDelegate = {
+  findUnique: (args: any) => Promise<any>
+  create: (args: any) => Promise<any>
+}
+
+let warnedMissingCachedAsset = false
+
+function getCachedAssetDelegate() {
+  const delegate = (prisma as any)?.cachedAsset as CachedAssetDelegate | undefined
+  if (!delegate && !warnedMissingCachedAsset) {
+    warnedMissingCachedAsset = true
+    console.warn(
+      'CachedAsset model missing from Prisma client; run `pnpm prisma:generate` and apply the latest migrations to enable image caching.'
+    )
+  }
+  return delegate
 }
 
 function collectImageCandidates(html: string, baseUrl: string) {

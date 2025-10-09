@@ -91,7 +91,7 @@ export default function AddWatch() {
       setName(previewQuery.data.title)
     }
     if (!imageTouched && !manualImageMode && previewQuery.data.image) {
-      setImageCacheId(previewQuery.data.image.id)
+      setImageCacheId(previewQuery.data.image.id ?? null)
       setImageUrl(previewQuery.data.image.sourceUrl)
     }
   }, [previewQuery.data, nameTouched, imageTouched, manualImageMode])
@@ -262,7 +262,7 @@ export default function AddWatch() {
                           setManualImageMode(false)
                           setImageTouched(false)
                           if (previewQuery.data?.image) {
-                            setImageCacheId(previewQuery.data.image.id)
+                            setImageCacheId(previewQuery.data.image.id ?? null)
                             setImageUrl(previewQuery.data.image.sourceUrl)
                           }
                         }}
