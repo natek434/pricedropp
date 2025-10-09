@@ -1,8 +1,8 @@
 import { initTRPC, TRPCError } from '@trpc/server'
 import superjson from 'superjson'
 import { z } from 'zod'
-import { WatchCreateSchema, UserSettingsSchema, rateLimitKey } from '@pricedropp/shared'
-import type { Prisma } from '@pricedropp/db'
+import { WatchCreateSchema, UserSettingsSchema, rateLimitKey, decimalToNumber, SimilarProductSearchSchema } from '@pricedropp/shared'
+import { Prisma } from '@pricedropp/db'
 import { Context } from './context'
 
 const t = initTRPC.context<Context>().create({ transformer: superjson })
@@ -28,21 +28,31 @@ export const appRouter = t.router({
     create: t.procedure.use(authed).input(WatchCreateSchema).mutation(async ({ ctx, input }) => {
       const rl = await rateLimitKey(`watch:create:${(ctx as any).userId}`, 30, 24 * 3600)
       if (!rl.allowed) throw new TRPCError({ code: 'TOO_MANY_REQUESTS' })
-      const { url, targetPrice, categorySlug } = input
+      const { url, targetPrice, categorySlug, title, imageUrl } = input
       const u = new URL(url)
-      const title = url
       const currency = 'NZD'
+      const createProductData: Prisma.ProductCreateInput = {
+        url,
+        host: u.host,
+        title: title ?? url,
+        image: imageUrl ?? null,
+        currency,
+        lastPrice: new Prisma.Decimal(targetPrice),
+      }
+      const updateProductData: Prisma.ProductUpdateInput = {}
+      if (title) updateProductData.title = title
+      if (imageUrl) updateProductData.image = imageUrl
       const product = await ctx.prisma.product.upsert({
         where: { url },
-        create: { url, host: u.host, title, currency, lastPrice: targetPrice },
-        update: {},
+        create: createProductData,
+        update: updateProductData,
       })
       if (categorySlug) {
         const c = await ctx.prisma.category.findUnique({ where: { slug: categorySlug } })
         if (c) await ctx.prisma.productCategory.upsert({ where: { productId_categoryId: { productId: product.id, categoryId: c.id } }, create: { productId: product.id, categoryId: c.id }, update: {} })
       }
       const watch = await ctx.prisma.watch.create({
-        data: { userId: (ctx as any).userId, productId: product.id, targetPrice: targetPrice as any },
+        data: { userId: (ctx as any).userId, productId: product.id, targetPrice: new Prisma.Decimal(targetPrice) },
         include: { product: true },
       })
       return serializeWatch(watch)
@@ -54,6 +64,38 @@ export const appRouter = t.router({
     list: t.procedure.use(authed).query(async ({ ctx }) => {
       const watches = await ctx.prisma.watch.findMany({ where: { userId: (ctx as any).userId }, include: { product: true } })
       return watches.map(serializeWatch)
+    }),
+  }),
+  product: t.router({
+    searchSimilar: t.procedure.input(SimilarProductSearchSchema).query(async ({ ctx, input }) => {
+      const { name, targetPrice, rangePercent } = input
+      const span = (targetPrice * rangePercent) / 100
+      const min = new Prisma.Decimal(targetPrice - span)
+      const max = new Prisma.Decimal(targetPrice + span)
+      const matches = await ctx.prisma.product.findMany({
+        where: {
+          title: { contains: name, mode: 'insensitive' },
+          lastPrice: { gte: min, lte: max },
+        },
+        select: {
+          id: true,
+          title: true,
+          host: true,
+          currency: true,
+          lastPrice: true,
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 10,
+      })
+      return matches.map((product) => ({
+        ...product,
+        lastPrice: decimalToNumber(product.lastPrice),
+      }))
+    }),
+  }),
+  meta: t.router({
+    categories: t.procedure.query(async ({ ctx }) => {
+      return ctx.prisma.category.findMany({ orderBy: { name: 'asc' } })
     }),
   }),
   notify: t.router({
@@ -68,10 +110,10 @@ function serializeWatch(
 ) {
   return {
     ...watch,
-    targetPrice: Number(watch.targetPrice),
+    targetPrice: decimalToNumber(watch.targetPrice),
     product: {
       ...watch.product,
-      lastPrice: Number(watch.product.lastPrice),
+      lastPrice: decimalToNumber(watch.product.lastPrice),
     },
   }
 }
