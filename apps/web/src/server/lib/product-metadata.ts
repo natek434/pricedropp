@@ -145,9 +145,8 @@ function collectImageCandidates(html: string, baseUrl: string) {
     const absolute = toAbsoluteUrl(trimmed, base)
     if (absolute) urls.add(absolute)
   }
-  push(findMetaContent(html, 'property', 'og:image'))
-  push(findMetaContent(html, 'name', 'twitter:image'))
-  push(findLinkHref(html, 'image_src'))
+  const prioritizedImageSrcs: string[] = []
+  const fallbackMetaSrcs: string[] = []
   const imgMatches = html.matchAll(/<img\b[^>]*>/gi)
   for (const match of imgMatches) {
     const tag = match[0]
@@ -162,10 +161,18 @@ function collectImageCandidates(html: string, baseUrl: string) {
     }
     if (hasRelevantLabel || hasDeferload || candidateAttrs.some(Boolean)) {
       for (const value of candidateAttrs) {
-        if (value) push(value)
+        if (value) prioritizedImageSrcs.push(value)
       }
     }
   }
+  fallbackMetaSrcs.push(findMetaContent(html, 'property', 'og:image') ?? '')
+  fallbackMetaSrcs.push(findMetaContent(html, 'name', 'twitter:image') ?? '')
+  fallbackMetaSrcs.push(findLinkHref(html, 'image_src') ?? '')
+
+  for (const src of [...prioritizedImageSrcs, ...fallbackMetaSrcs]) {
+    push(src)
+  }
+
   return urls
 }
 
