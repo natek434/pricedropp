@@ -172,17 +172,6 @@ export default function AddWatch() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700" htmlFor="name">
-                Name (optional)
-              </label>
-              <Input
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Mainland Butter Salted"
-              />
-            </div>
-            <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700" htmlFor="price">
                 Target Price
               </label>

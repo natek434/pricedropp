@@ -1,4 +1,4 @@
-import { prisma } from '@pricedropp/db'
+import { prisma, Prisma } from '@pricedropp/db'
 
 type PreviewResult = {
   title?: string
@@ -55,8 +55,16 @@ export async function ensureCachedAsset(sourceUrl: string) {
 }
 
 async function getOrCreateCachedAsset(sourceUrl: string) {
-  const existing = await prisma.cachedAsset.findUnique({ where: { sourceUrl } })
-  if (existing) return existing
+  try {
+    const existing = await prisma.cachedAsset.findUnique({ where: { sourceUrl } })
+    if (existing) return existing
+  } catch (error) {
+    if (isCachedAssetUnavailable(error)) {
+      console.warn('CachedAsset table missing; skipping cache lookup')
+      return null
+    }
+    throw error
+  }
   const res = await fetch(sourceUrl, {
     headers: DEFAULT_HEADERS,
     signal: AbortSignal.timeout(12_000),
@@ -70,13 +78,30 @@ async function getOrCreateCachedAsset(sourceUrl: string) {
   }
   const contentType = res.headers.get('content-type') || guessContentTypeFromUrl(sourceUrl) || 'application/octet-stream'
   const data = Buffer.from(arrayBuffer)
-  return prisma.cachedAsset.create({
-    data: {
-      sourceUrl,
-      contentType,
-      data,
-    },
-  })
+  try {
+    return await prisma.cachedAsset.create({
+      data: {
+        sourceUrl,
+        contentType,
+        data,
+      },
+    })
+  } catch (error) {
+    if (isCachedAssetUnavailable(error)) {
+      console.warn('CachedAsset table missing; skipping cache write')
+      return null
+    }
+    throw error
+  }
+}
+
+function isCachedAssetUnavailable(error: unknown) {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    return ['P2021', 'P2010', 'P1010'].includes(error.code)
+  }
+  if (error instanceof Prisma.PrismaClientInitializationError) return true
+  if (error instanceof Error && /cachedasset/i.test(error.message)) return true
+  return false
 }
 
 function collectImageCandidates(html: string, baseUrl: string) {
