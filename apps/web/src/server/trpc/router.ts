@@ -84,11 +84,34 @@ export const appRouter = t.router({
       } else if (resolvedImageUrl) {
         updateProductData.imageCache = { disconnect: true }
       }
-      const product = await ctx.prisma.product.upsert({
-        where: { url },
-        create: createProductData,
-        update: updateProductData,
-      })
+      let product: Prisma.Product
+      try {
+        product = await ctx.prisma.product.upsert({
+          where: { url },
+          create: createProductData,
+          update: updateProductData,
+        })
+      } catch (error) {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.message.includes('Unknown argument `imageCache`')
+        ) {
+          console.warn(
+            'Prisma client missing imageCache relation, retrying product upsert without cached asset linkage'
+          )
+          const createFallback = { ...createProductData } as Prisma.ProductCreateInput & Record<string, unknown>
+          const updateFallback = { ...updateProductData } as Prisma.ProductUpdateInput & Record<string, unknown>
+          delete createFallback.imageCache
+          delete updateFallback.imageCache
+          product = await ctx.prisma.product.upsert({
+            where: { url },
+            create: createFallback as Prisma.ProductCreateInput,
+            update: updateFallback as Prisma.ProductUpdateInput,
+          })
+        } else {
+          throw error
+        }
+      }
       if (categorySlug) {
         const c = await ctx.prisma.category.findUnique({ where: { slug: categorySlug } })
         if (c) await ctx.prisma.productCategory.upsert({ where: { productId_categoryId: { productId: product.id, categoryId: c.id } }, create: { productId: product.id, categoryId: c.id }, update: {} })
