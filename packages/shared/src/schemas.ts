@@ -5,7 +5,24 @@ export const WatchCreateSchema = z.object({
   targetPrice: z.number().positive(),
   categorySlug: z.string().optional(),
   tags: z.array(z.string()).optional(),
-  selectorOverride: z.string().optional()
+  selectorOverride: z.string().optional(),
+  title: z.string().min(1).max(200).optional(),
+  imageUrl: z.string().url().optional(),
+  imageCacheId: z.string().cuid().optional(),
+})
+
+export const SimilarProductSearchSchema = z.object({
+  name: z.string().min(2),
+  targetPrice: z.number().positive(),
+  rangePercent: z.number().int().min(1).max(50).default(10),
+})
+
+export const ProductPreviewSchema = z.object({
+  url: z.string().url(),
+})
+
+export const GoogleShoppingSearchSchema = z.object({
+  query: z.string().min(2),
 })
 
 export const UserSettingsSchema = z.object({

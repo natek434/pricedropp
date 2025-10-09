@@ -18,6 +18,8 @@ Monorepo for a production-oriented price watch and alerting app.
 - App: http://localhost:3000
 - Mailhog: http://localhost:8025
 
+See [docs/manual-preview.md](./docs/manual-preview.md) if you need to manually trigger the product preview scraper (includes both Unix shell and Windows PowerShell examples).
+
 ## Structure
 
 - `apps/web` — Next.js app with auth, tRPC, REST feeds
