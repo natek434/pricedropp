@@ -5,4 +5,5 @@ export * from './rate-limit'
 export * from './etag'
 export * from './notify'
 export * from './time'
+export * from './prisma'
 
