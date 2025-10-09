@@ -12,5 +12,10 @@ describe('parsePrice', () => {
     expect(r?.currency).toBe('EUR')
     expect(r?.price.toNumber()).toBeCloseTo(1234.56)
   })
+  it('parses decimal split by whitespace', () => {
+    const r = parsePrice('$ 7 30 each')
+    expect(r?.currency).toBe('NZD')
+    expect(r?.price.toNumber()).toBeCloseTo(7.3)
+  })
 })
 
