@@ -32,7 +32,15 @@ export async function searchGoogleShopping(query: string): Promise<GoogleShoppin
   }
   const html = await response.text()
   const results: GoogleShoppingResult[] = []
-  const seen = new Set<string>()
+  const jsonResults = extractFromAfInitScripts(html)
+  for (const result of jsonResults) {
+    results.push(result)
+    if (results.length === 12) break
+  }
+  if (results.length === 12) {
+    return results
+  }
+  const seen = new Set<string>(results.map((item) => item.id))
   const cardRegex = createCardRegex()
   let match: RegExpExecArray | null
   while ((match = cardRegex.exec(html)) && results.length < 12) {
@@ -141,7 +149,24 @@ function normalizeGoogleLink(href?: string | null) {
   if (!href) return undefined
   const trimmed = href.trim()
   if (!trimmed) return undefined
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    try {
+      const url = new URL(trimmed)
+      if (url.hostname === 'www.google.com') {
+        if (url.pathname === '/url') {
+          const target = url.searchParams.get('url') || url.searchParams.get('q')
+          if (target) return target
+        }
+        if (url.pathname.startsWith('/shopping/redirect')) {
+          const target = url.searchParams.get('url')
+          if (target) return target
+        }
+      }
+    } catch (error) {
+      // ignore parse errors and fall back to original href
+    }
+    return trimmed
+  }
   if (trimmed.startsWith('/')) return `https://www.google.com${trimmed}`
   return undefined
 }
@@ -168,4 +193,142 @@ function decodeHtml(value: string) {
     .replace(/&gt;/g, '>')
     .replace(/&nbsp;/g, ' ')
     .replace(/&#160;/g, ' ')
+}
+
+function extractFromAfInitScripts(html: string) {
+  const scriptRegex = /<script[^>]*>\s*AF_initDataCallback\((\{[\s\S]*?\})\)\s*;<\/script>/g
+  const results: GoogleShoppingResult[] = []
+  const seen = new Set<string>()
+  let match: RegExpExecArray | null
+  while ((match = scriptRegex.exec(html)) && results.length < 12) {
+    const payload = parseAfInitPayload(match[1])
+    if (!payload || !payload.data) continue
+    collectFromNode(payload.data, results, seen)
+  }
+  return results
+}
+
+function parseAfInitPayload(serialized: string): { key?: string; data?: unknown } | null {
+  try {
+    const cleanSerialized = serialized.replace(/,\s*sideChannel:\s*\{[\s\S]*?\}\s*$/, '')
+    // eslint-disable-next-line no-new-func
+    const value = new Function(`"use strict"; return (${cleanSerialized});`)()
+    if (value && typeof value === 'object') {
+      return value as { key?: string; data?: unknown }
+    }
+  } catch (error) {
+    // ignore parsing issues and fall back to markup scraping
+  }
+  return null
+}
+
+function collectFromNode(data: unknown, results: GoogleShoppingResult[], seen: Set<string>) {
+  if (!data || results.length >= 12) return
+  if (Array.isArray(data)) {
+    const candidate = buildResultFromNode(data)
+    if (candidate) {
+      if (!seen.has(candidate.id)) {
+        results.push(candidate)
+        seen.add(candidate.id)
+      }
+      if (results.length >= 12) return
+    }
+    for (const item of data) {
+      collectFromNode(item, results, seen)
+      if (results.length >= 12) return
+    }
+    return
+  }
+  if (typeof data === 'object') {
+    for (const value of Object.values(data as Record<string, unknown>)) {
+      collectFromNode(value, results, seen)
+      if (results.length >= 12) return
+    }
+  }
+}
+
+function buildResultFromNode(node: unknown[]): GoogleShoppingResult | null {
+  const strings = collectStrings(node)
+  if (!strings.length) return null
+  const link = strings.find((value) => isPlausibleLink(value))
+  if (!link) return null
+  const title = strings.find((value) => isPlausibleTitle(value))
+  if (!title) return null
+  const priceText = strings.find((value) => PRICE_HINT_REGEX.test(value))
+  const merchant = strings.find((value) => isPlausibleMerchant(value, title))
+  const imageUrl = strings.find((value) => isPlausibleImage(value))
+  const normalizedLink = normalizeGoogleLink(link)
+  if (!normalizedLink) return null
+  return {
+    id: createResultId(normalizedLink, title),
+    title,
+    link: normalizedLink,
+    priceText: priceText || undefined,
+    merchant: merchant || undefined,
+    imageUrl: imageUrl ? normalizeGoogleLink(imageUrl) : undefined,
+  }
+}
+
+function collectStrings(root: unknown, limit = 60) {
+  const strings: string[] = []
+  const stack: unknown[] = [root]
+  while (stack.length && strings.length < limit) {
+    const current = stack.pop()
+    if (typeof current === 'string') {
+      const clean = cleanText(current)
+      if (clean) strings.push(clean)
+      continue
+    }
+    if (Array.isArray(current)) {
+      for (const item of current) {
+        stack.push(item)
+      }
+      continue
+    }
+    if (current && typeof current === 'object') {
+      for (const value of Object.values(current as Record<string, unknown>)) {
+        stack.push(value)
+      }
+    }
+  }
+  return strings
+}
+
+function isPlausibleLink(value: string) {
+  if (!/^https?:\/\//i.test(value)) return false
+  if (/googleusercontent/i.test(value)) return false
+  if (/^https?:\/\/[^\s]+\.(?:jpg|jpeg|png|webp|gif)(?:$|\?)/i.test(value)) return false
+  return (
+    value.includes('/shopping/') ||
+    value.includes('tbm=shop') ||
+    value.includes('/aclk') ||
+    value.includes('/url?')
+  )
+}
+
+function isPlausibleTitle(value: string) {
+  if (!value) return false
+  if (/^https?:\/\//i.test(value)) return false
+  if (PRICE_HINT_REGEX.test(value)) return false
+  if (value.length < 4 || value.length > 150) return false
+  if (!/[a-z]/i.test(value)) return false
+  const wordCount = value.split(/\s+/).length
+  return wordCount <= 25
+}
+
+function isPlausibleMerchant(value: string, title: string) {
+  if (!value) return false
+  if (/^https?:\/\//i.test(value)) return false
+  if (PRICE_HINT_REGEX.test(value)) return false
+  if (value.length > 60) return false
+  if (!/[a-z]/i.test(value)) return false
+  if (value === title) return false
+  if (/\breview/i.test(value)) return false
+  if (/\bresults?/i.test(value)) return false
+  return true
+}
+
+function isPlausibleImage(value: string) {
+  if (!/^https?:\/\//i.test(value)) return false
+  return /(?:jpg|jpeg|png|webp|tbn)/i.test(value)
 }
