@@ -1,0 +1,15 @@
+node_modules
+.next
+dist
+.turbo
+.pnpm-store
+coverage
+.DS_Store
+.env
+.env.local
+playwright-report
+test-results
+.idea
+.vscode
+prisma/dev.db
+

@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
+    "paths": {
+      "@pricedropp/shared/*": ["packages/shared/src/*"],
+      "@pricedropp/db": ["packages/db/src/index.ts"],
+      "@pricedropp/db/*": ["packages/db/src/*"]
+    }
+  }
+}
+

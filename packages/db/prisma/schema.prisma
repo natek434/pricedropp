@@ -1,0 +1,174 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String        @id @default(cuid())
+  email         String        @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  passwordHash  String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  accounts      Account[]
+  sessions      Session[]
+  settings      UserSettings?
+  watches       Watch[]
+  notifications Notification[]
+  auditLogs     AuditLog[]
+}
+
+model UserSettings {
+  userId              String  @id
+  user                User    @relation(fields: [userId], references: [id])
+  quietHoursStart     Int?
+  quietHoursEnd       Int?
+  maxAlertsPerDay     Int     @default(3)
+  digestHour          Int?
+  nearTargetPercent   Int     @default(5)
+  nearTargetCooldownH Int     @default(24)
+  timezone            String  @default("Pacific/Auckland")
+  defaultCurrency     String  @default("NZD")
+  telegramChatId      String?
+}
+
+model Product {
+  id           String         @id @default(cuid())
+  url          String         @unique
+  host         String
+  title        String
+  image        String?
+  currency     String
+  lastPrice    Decimal        @db.Decimal(18, 4)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  views        Int            @default(0)
+  priceHistory PriceHistory[]
+  watches      Watch[]
+  categories   ProductCategory[]
+  tags         ProductTag[]
+}
+
+model PriceHistory {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  price     Decimal  @db.Decimal(18, 4)
+  currency  String
+  seenAt    DateTime @default(now())
+}
+
+model Watch {
+  id                  String   @id @default(cuid())
+  userId              String
+  productId           String
+  user                User     @relation(fields: [userId], references: [id])
+  product             Product  @relation(fields: [productId], references: [id])
+  targetPrice         Decimal  @db.Decimal(18, 4)
+  nearTargetPercent   Int?
+  nearTargetCooldownH Int?
+  hardCooldownH       Int      @default(12)
+  lastNearTargetAt    DateTime?
+  lastOnTargetAt      DateTime?
+  mutedUntil          DateTime?
+  categoryId          String?
+  createdAt           DateTime @default(now())
+  notifications       Notification[]
+}
+
+model Category {
+  id    String  @id @default(cuid())
+  name  String
+  slug  String  @unique
+  products ProductCategory[]
+}
+
+model Tag {
+  id    String  @id @default(cuid())
+  name  String
+  slug  String  @unique
+  products ProductTag[]
+}
+
+model ProductCategory {
+  productId  String
+  categoryId String
+  product    Product  @relation(fields: [productId], references: [id])
+  category   Category @relation(fields: [categoryId], references: [id])
+  @@id([productId, categoryId])
+}
+
+model ProductTag {
+  productId String
+  tagId     String
+  product   Product @relation(fields: [productId], references: [id])
+  tag       Tag     @relation(fields: [tagId], references: [id])
+  @@id([productId, tagId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  watchId   String?
+  watch     Watch?   @relation(fields: [watchId], references: [id])
+  type      String
+  payload   Json
+  createdAt DateTime @default(now())
+}
+
+model SiteRule {
+  id        String   @id @default(cuid())
+  host      String   @unique
+  selectors String[]
+  waitMs    Int      @default(1500)
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  meta      Json
+  createdAt DateTime @default(now())
+}
+
+// NextAuth models
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+  @@unique([identifier, token])
+}
